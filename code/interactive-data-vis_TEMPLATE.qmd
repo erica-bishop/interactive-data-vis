@@ -4,6 +4,7 @@ format: html
 ---
 
 # Set up
+
 ```{r}
 # general use
 library(here) # file organization
@@ -24,11 +25,13 @@ library(echarts4r) # even more interactive plots
 
 # Interactive maps
 
-`leaflet` is the go-to package for interactive maps. It's not _super_ for static maps, but for anyone looking to get an interactive map on their dashboard, this is a great option. In this example, we're going to use some data from Niwot Ridge LTER to create a map of vegetation classes, snow surveys, pika locations, and landmarks at the site.  
+`leaflet` is the go-to package for interactive maps.
+It's not *super* for static maps, but for anyone looking to get an interactive map on their dashboard, this is a great option.
+In this example, we're going to use some data from Niwot Ridge LTER to create a map of vegetation classes, snow surveys, pika locations, and landmarks at the site.
 
 Here's some cleaning code (we're not going through this step by step):
 
-```{r}
+```{r clean_data}
 # project extent
 
 project_extent <- st_read(here::here("data", "nwt_project_extent", "shapefiles"), layer = "nwt_project_extent") %>% 
@@ -92,26 +95,91 @@ pikas <- st_as_sf(x = nwt_pikas, coords = c("utm_easting", "utm_northing")) %>%
   ))
 ```
 
+And here's a map:
 
-And here's a map: 
+```{r echo=TRUE}
 
-```{r}
+map <- leaflet() |> 
+  #add basemap
+  addProviderTiles(providers$OpenTopoMap, group = "OpenTopoMap") |> 
+  #add map layers: veg boundary and vegetation classes
+  addPolygons(data = project_extent, #df with boundaries
+              color = "#76e397",
+              group = "NNT project extent") |> 
+  #veg classes
+  addPolygons(
+    data = veg, #df with classes
+    group = "Vegetation",
+    popup = ~marker_text, #saved marker text from above
+    fillColor = ~veg_pal(type),
+    fillOpacity = 1, #make opaque
+    stroke = FALSE #remove boundary strokes to show colors better
+  ) |> 
+  #add snow survey markers
+  addCircleMarkers(
+    data = snow2018,
+    group = "Snow surveys",
+    color = "lightblue",
+    stroke = FALSE, #remove outlines
+    fillOpacity = 1,
+    popup = ~marker_text,
+    radius = 2,
+    popupOptions = popupOptions(closeOnClick = FALSE) #make markers dissappear 
+  ) |> 
+  #add landmarks markers
+  addCircleMarkers(
+    data = landmarks,
+    group = "Landmarks", #groups allow you to connect to legends/markers
+    color = "yellow",
+    stroke = FALSE,
+    fillOpacity = 1,
+    popup = ~marker_text,
+    radius = 2,
+    popupOptions = popupOptions(closeOnClick = FALSE)
+  ) |> 
+  #specify layering order
+  addLayersControl(
+    baseGroups = c("OpenTopoMap"),
+    overlayGroups = c("Niwot project extent", "Snow surveys"),
+    options = layersControlOptions(collapsed = TRUE)
+  ) |> 
+  #add legend for snow surveys
+  addLegend(
+    values = 1, #first item in legend
+    group = "Snow surveys", #specified in addcirclemarkers
+    position = "bottomleft",
+    labels = "Snow surveys",
+    colors = "lightblue",
+    opacity = 1
+  ) |> 
+  #add legend for landmarks
+  addLegend(
+    values = 2, #second item in legend
+    group = "Landmarks",
+    position = "bottomleft",
+    labels = "Landmarks",
+    colors = "yellow",
+    opacity = 1
+  )
+
+
+map
 
 ```
 
+# Interactive plots
 
-# Interactive plots 
-
-You can build interactivity into your plots using packages that are essentially wrappers for Javascript: you can get an interactive framework without having to learn a whole new language. We're going to make the following plot interactive: 
+You can build interactivity into your plots using packages that are essentially wrappers for Javascript: you can get an interactive framework without having to learn a whole new language.
+We're going to make the following plot interactive:
 
 ```{r}
 bg_col <- "#232324"
 text_col <- "#f2f2f2"
   
 weather <- arc_weather %>% 
-  mutate(year = year(date),
-         month = month(date),
-         day = day(date)) %>% 
+  mutate(year = lubridate::year(date),
+         month = lubridate::month(date),
+         day = lubridate::day(date)) %>% 
   mutate(season = case_when(
     month %in% c(12, 1, 2) ~ "winter",
     month %in% c(3, 4, 5) ~ "spring",
@@ -119,7 +187,7 @@ weather <- arc_weather %>%
     month %in% c(9, 10, 11) ~ "fall"
   ),
   season = fct_relevel(season, c("winter", "spring", "summer", "fall"))) %>% 
-  mutate(julian = yday(date)) %>% 
+  mutate(julian = lubridate::yday(date)) %>% 
   mutate(marker_text = paste(
     "Date: ", date, "<br>",
     "Mean air temp (C): ", mean_airtemp, "<br>",
@@ -143,7 +211,7 @@ weather_static <- ggplot(data = weather, aes(x = julian, y = mean_airtemp, color
        title = "Toolik Field Station is below freezing for most of the year.",
        subtitle = "Each point represents mean air temperature on a given day of the year (Julian day) colored by temperature.") +
   theme_bw() +
-  theme(text = element_text(family = "Garamond", color = text_col),
+  theme(text = element_text(family = "Arial", color = text_col),
         panel.grid = element_blank(),
         # legend.position = "none",
         panel.background = element_rect(fill = bg_col, color = bg_col),
@@ -160,27 +228,98 @@ weather_static
 
 # Option 1: Turn a `ggplot` object into an interactive graph with `plotly`
 
-The easiest way to build in interactivity is to use `plotly` to get an interactive plot from a `ggplot` object.  
+The easiest way to build in interactivity is to use `plotly` to get an interactive plot from a `ggplot` object.
 
 ```{r}
+
+weather_ggplotly <- ggplotly(weather_static, tooltip = c("text")) |> 
+  layout(title = list( #overwrites static ggplot title
+    text = paste0(
+      "Toolik Field Station is below freezing for most of the year.",
+      "<br>", #add html formatting for break
+      "<sup>", #indicates subscript formatting
+      "Each point represents mean air temperature on a given day of the year (Julian day) colored by temperature.",
+      "</sup>" #end sup
+    )
+  ))
+
+# weather_ggplotly
+
 
 ```
 
-# Option 2: Use `ggiraph`'s unique geoms
+# Option 2: Use `ggiraph`'s unique geoms - wraps R into javascript format
+Can add _interactive to ggplot geoms to make them interactive with ggiraph
 
 ```{r}
+weather_ggiraph <- ggplot(data = weather, aes(x = julian, y = mean_airtemp, color = mean_airtemp, 
+                                              tooltip = marker_text, data_id = marker_text)) +
+  geom_point_interactive() +
+  scale_color_gradient2(low = "#28ACE6", mid = "#FFFFFF", high = "#C13C31") +
+  geom_hline(yintercept = 0, lty = 2, color = "#C13C31", linewidth = 2) +
+  scale_x_continuous(expand = c(0, 0), limits = c(0, 366)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(-56, 25)) +
+  labs(x = "Julian day", y = "degrees Celsius",
+       title = "Toolik Field Station is below freezing for most of the year.",
+       subtitle = "Each point represents mean air temperature on a given day of the year (Julian day) colored by temperature.") +
+  theme_bw() +
+  theme(text = element_text(family = "Garamond", color = text_col),
+        panel.grid = element_blank(),
+        legend.position = "none",
+        panel.background = element_rect(fill = bg_col, color = bg_col),
+        panel.border = element_blank(),
+        plot.background = element_rect(fill = bg_col, color = bg_col),
+        axis.text = element_text(color = text_col, size = 14),
+        axis.line = element_blank(),
+        axis.title = element_text(size = 14),
+        axis.ticks = element_blank(),
+        plot.title = element_text(size = 20, face = "bold"),
+        legend.background = element_rect(fill = bg_col))
+
+#now make it into an interactive object:
+weather_ggiraph_interactive <- girafe(
+  ggobj = weather_ggiraph,
+  width = 8, height = 5,
+  # bg = bg_col,
+  options = list(
+    opts_tooltip(
+      opacity = 0.8, use_fill = TRUE,
+      use_stroke = FALSE, 
+      css = "padding:5pt;font-family: Garamond;font-size:1rem;color:white"),
+    opts_hover_inv(css = "opacity:0.4"),
+    opts_selection(
+      type = "multiple",
+      only_shiny = FALSE
+    )
+  )
+)
+
+weather_ggiraph_interactive
 
 ```
 
 # Option 3: `echarts4r`
 
-This is the most complicated option - the documentation is fairly minimal. However, it's cool.
+This is the most complicated option - the documentation is fairly minimal.
+However, it's cool.
 
 ```{r}
 
+airtemp_echart4r <-
+  weather |> 
+  group_by(year) |> #groupby year allows timeline function
+  e_charts(x = julian, timeline = TRUE) |> #add timeline
+  e_timeline_opts()
+  e_scatter(serie = mean_airtemp) |> 
+  e_visual_map( #controls aesthetics to manipulate
+    min = -54, max = 21, #temp range
+  ) 
+
+airtemp_echart4r
+
+
+
+
+
+
 ```
-
-
-
-
-
